@@ -1,0 +1,21 @@
+version: "3.9"
+
+services:
+  klikk-ai-portal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: klikk-ai-portal
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
+    volumes:
+      # Persist KPI definitions across container restarts
+      - ./kpi_definitions.yaml:/app/kpi_definitions.yaml
+      # Google Drive credentials (optional)
+      - ./credentials:/app/credentials:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    # Port 8501 exposed via host networking
+    # Access at http://192.168.1.235:8501

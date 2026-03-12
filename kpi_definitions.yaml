@@ -1,0 +1,11 @@
+kpis:
+- id: Debt
+  name: Debt Reduction
+  category: GL
+  description: If the loan is getting less per month and what effect it has on interest
+  source_type: gl_by_type
+  source_params:
+    account_types:
+    - REVENUE
+    sign: -1
+  format: number
