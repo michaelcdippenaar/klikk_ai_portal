@@ -1,0 +1,227 @@
+@import "tailwindcss";
+
+/* === Klikk AI Portal — Clean Light Dashboard (Avalon-style) === */
+
+:root {
+  --klikk-bg: #f4f6f9;
+  --klikk-surface: #ffffff;
+  --klikk-surface-hover: #f8f9fb;
+  --klikk-surface-alt: #f1f3f6;
+  --klikk-border: #e2e8f0;
+  --klikk-border-light: #f0f0f5;
+  --klikk-primary: #4f46e5;
+  --klikk-primary-light: #eef2ff;
+  --klikk-secondary: #06b6d4;
+  --klikk-success: #22c55e;
+  --klikk-success-light: #f0fdf4;
+  --klikk-warning: #f59e0b;
+  --klikk-warning-light: #fffbeb;
+  --klikk-danger: #ef4444;
+  --klikk-danger-light: #fef2f2;
+  --klikk-info: #3b82f6;
+  --klikk-info-light: #eff6ff;
+  --klikk-text: #1e293b;
+  --klikk-text-secondary: #64748b;
+  --klikk-text-muted: #94a3b8;
+  --klikk-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --klikk-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --klikk-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* === Global === */
+body {
+  background: var(--klikk-bg);
+  color: var(--klikk-text);
+}
+
+/* === Scrollbar === */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
+/* === Card / Glass Card === */
+.card,
+.glass-card {
+  background: var(--klikk-surface);
+  border: 1px solid var(--klikk-border);
+  border-radius: 12px;
+  box-shadow: var(--klikk-shadow);
+  transition: box-shadow 0.2s ease;
+}
+.card:hover,
+.glass-card:hover {
+  box-shadow: var(--klikk-shadow-md);
+}
+
+/* === KPI Card === */
+.kpi-card {
+  background: var(--klikk-surface);
+  border: 1px solid var(--klikk-border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: var(--klikk-shadow);
+  transition: all 0.2s ease;
+  position: relative;
+}
+.kpi-card:hover {
+  box-shadow: var(--klikk-shadow-md);
+  transform: translateY(-1px);
+}
+.kpi-card.status-ok { border-left: 4px solid var(--klikk-success); }
+.kpi-card.status-warning { border-left: 4px solid var(--klikk-warning); }
+.kpi-card.status-critical { border-left: 4px solid var(--klikk-danger); }
+
+/* === Widget Container === */
+.widget-container {
+  background: var(--klikk-surface);
+  border: 1px solid var(--klikk-border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--klikk-shadow);
+  transition: box-shadow 0.2s ease;
+}
+.widget-container:hover {
+  box-shadow: var(--klikk-shadow-md);
+}
+.widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--klikk-border);
+  background: var(--klikk-surface);
+}
+.widget-body {
+  padding: 1rem;
+}
+
+/* === Chat === */
+.chat-message-user {
+  background: var(--klikk-primary);
+  color: #ffffff;
+  border-radius: 12px 12px 4px 12px;
+}
+.chat-message-assistant {
+  background: var(--klikk-surface-alt);
+  border: 1px solid var(--klikk-border);
+  border-radius: 12px 12px 12px 4px;
+  color: var(--klikk-text);
+}
+
+/* === Sidebar === */
+.sidebar {
+  background: var(--klikk-surface);
+  border-right: 1px solid var(--klikk-border);
+}
+.sidebar-section-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--klikk-text-muted);
+  padding: 1rem 1rem 0.375rem;
+}
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  color: var(--klikk-text-secondary);
+  transition: all 0.15s ease;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+.sidebar-item:hover {
+  background: var(--klikk-surface-hover);
+  color: var(--klikk-text);
+}
+.sidebar-item.active {
+  background: var(--klikk-primary-light);
+  color: var(--klikk-primary);
+  font-weight: 500;
+}
+
+/* === PrimeVue Overrides (Light) === */
+.p-datatable .p-datatable-thead > tr > th {
+  background: var(--klikk-surface-alt) !important;
+  border-color: var(--klikk-border) !important;
+  color: var(--klikk-text-secondary) !important;
+  font-weight: 600;
+  font-size: 0.8125rem;
+}
+.p-datatable .p-datatable-tbody > tr {
+  background: var(--klikk-surface) !important;
+  border-color: var(--klikk-border) !important;
+}
+.p-datatable .p-datatable-tbody > tr:hover {
+  background: var(--klikk-surface-hover) !important;
+}
+.p-dropdown,
+.p-select {
+  background: var(--klikk-surface) !important;
+  border-color: var(--klikk-border) !important;
+}
+.p-inputtext {
+  background: var(--klikk-surface) !important;
+  border-color: var(--klikk-border) !important;
+  color: var(--klikk-text) !important;
+}
+.p-tree {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* === AG Grid Light === */
+.ag-theme-alpine,
+.ag-theme-alpine-dark {
+  --ag-background-color: var(--klikk-surface) !important;
+  --ag-header-background-color: var(--klikk-surface-alt) !important;
+  --ag-odd-row-background-color: #fafbfc !important;
+  --ag-row-hover-color: var(--klikk-surface-hover) !important;
+  --ag-border-color: var(--klikk-border) !important;
+  --ag-font-family: 'Inter', sans-serif !important;
+  --ag-font-size: 13px !important;
+}
+
+/* === Code / Monospace === */
+code, .font-mono {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* === Animations === */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* === Stat badge === */
+.stat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 99px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.stat-badge.up { background: var(--klikk-success-light); color: #16a34a; }
+.stat-badge.down { background: var(--klikk-danger-light); color: #dc2626; }
+.stat-badge.neutral { background: var(--klikk-surface-alt); color: var(--klikk-text-muted); }
+
+/* === Breadcrumbs === */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--klikk-text-muted);
+}
+.breadcrumb a { color: var(--klikk-primary); text-decoration: none; }
+.breadcrumb a:hover { text-decoration: underline; }

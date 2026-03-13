@@ -1,0 +1,173 @@
+widget_types:
+  CubeViewer:
+    description: AG Grid table showing a cube data slice via MDX
+    props:
+      cube: Cube name, e.g. 'gl_src_trial_balance'
+      rows: Dimension for row axis
+      columns: Dimension for column axis
+      slicers: 'Dict of {dimension: element} for WHERE clause'
+      expandRow: Parent element to expand on rows (uses .Children)
+      expandCol: Parent element to expand on columns (uses .Children)
+      mdx: Full MDX override (optional — auto-built from cube/rows/columns if omitted)
+      maxRows: Max rows to display (default 500)
+    default_width: 3
+    default_height: md
+    auto_mdx: true
+  DimensionTree:
+    description: Hierarchical tree view of a TM1 dimension
+    props:
+      dimension: Dimension name, e.g. 'account'
+      hierarchy: Hierarchy name (defaults to dimension name)
+      expandDepth: How many levels to auto-expand (default 1)
+    default_width: 2
+    default_height: lg
+  DimensionEditor:
+    description: Editable element attributes table for a dimension
+    props:
+      dimension: Dimension name
+      elements: List of element names to show
+      attributes: List of attribute names to display as columns
+    default_width: 3
+    default_height: md
+  KPICard:
+    description: Single metric card with trend indicator and status colour
+    props:
+      title: Metric label
+      value: Numeric value to display
+      format: '''currency'', ''number'', or ''percentage'''
+      trend: '''up'', ''down'', or ''flat'''
+      status: '''ok'', ''warning'', or ''critical'''
+      subtitle: Optional secondary text
+    default_width: 1
+    default_height: sm
+  LineChart:
+    description: Time series line chart (ECharts)
+    props:
+      title: Chart title
+      cube: Source cube name
+      mdx: MDX query for chart data
+      xAxis: Dimension for x-axis (e.g. 'month')
+      series: List of series definitions [{name, element}]
+    default_width: 2
+    default_height: md
+  BarChart:
+    description: Bar chart for comparisons (ECharts)
+    props:
+      title: Chart title
+      cube: Source cube name
+      mdx: MDX query for chart data
+      xAxis: Dimension for x-axis
+      series: List of series definitions [{name, element}]
+    default_width: 2
+    default_height: md
+  PieChart:
+    description: Pie/donut chart for breakdowns (ECharts)
+    props:
+      title: Chart title
+      cube: Source cube name
+      mdx: MDX query for chart data
+      categoryDimension: Dimension for pie slices
+    default_width: 2
+    default_height: md
+  PivotTable:
+    description: Pivot table with row/column grouping
+    props:
+      cube: Source cube name
+      mdx: MDX query for pivot data
+      rowDimensions: List of dimensions for row grouping
+      columnDimensions: List of dimensions for column headers
+    default_width: 4
+    default_height: lg
+    auto_mdx: true
+  DataGrid:
+    description: Generic data table from inline data (no TM1 required)
+    props:
+      title: Table title
+      headers: List of column header strings
+      rows: List of row arrays (each row is a list of values)
+    default_width: 3
+    default_height: md
+  MDXEditor:
+    description: Interactive MDX query editor with live results panel
+    props:
+      initialMdx: Pre-filled MDX statement
+      cube: Default cube context
+    default_width: 4
+    default_height: lg
+  DimensionSetEditor:
+    description: Interactive two-panel set builder for a TM1 dimension. Left panel
+      shows all available elements with hierarchy, right panel is the user's ordered
+      set. Drag-and-drop to add/reorder. Generates an MDX set expression. Use when
+      the user wants to pick specific elements from a dimension for analysis or view
+      building.
+    props:
+      dimension: Dimension name, e.g. 'account', 'entity', 'month'
+      hierarchy: Hierarchy name (defaults to dimension name)
+      selectedElements: Optional list of pre-selected element names
+      elementType: '''all'', ''leaf'', or ''consolidated'' (default ''all'')'
+      mode: '''flat'' (simple list) or ''tree'' (indented by hierarchy level). Default
+        ''tree'''
+      limit: Max available elements to load (default 1000)
+    default_width: 3
+    default_height: lg
+  SQLEditor:
+    description: Interactive SQL query editor with table browser and results grid.
+      Browse PostgreSQL databases (klikk_financials_v4 for GL/investments/Investec
+      data, klikk_bi_etl for BI metrics), explore table schemas, and execute read-only
+      SQL queries with results displayed in AG Grid.
+    props:
+      database: '''financials'' or ''bi'' — which database to connect to (default
+        ''financials'')'
+      initialSql: Pre-filled SQL query
+      table: Table to pre-select in the browser
+    default_width: 4
+    default_height: lg
+  PAWCubeViewer:
+    description: Embedded PAW (Planning Analytics Workspace) interactive cube viewer
+      with full writeback support. Opens a native PAW pivot view inside the portal.
+      Use when the user wants to edit data, use sandboxes, or needs the full PAW experience.
+    props:
+      cube: Cube name to open in PAW
+      view: Optional saved view name
+      pawUrl: Auto-generated PAW embed URL (do not set manually)
+    default_width: 4
+    default_height: lg
+  PAWDimensionEditor:
+    description: Embedded PAW dimension/subset editor. Opens the native PAW dimension
+      management interface. Use when the user wants to create or edit subsets, manage
+      hierarchy, or edit element attributes in PAW.
+    props:
+      dimension: Dimension name to edit
+      subset: Optional subset name to open
+      pawUrl: Auto-generated PAW embed URL (do not set manually)
+    default_width: 3
+    default_height: lg
+  PAWBook:
+    description: Embedded PAW book/sheet. Opens a full PAW workbook with interactive
+      views, charts, and dashboards created in PAW. Use when referring to existing
+      PAW dashboards or reports.
+    props:
+      book: Book name or ID
+      sheet: Optional sheet name within the book
+      pawUrl: Auto-generated PAW embed URL (do not set manually)
+    default_width: 4
+    default_height: lg
+  PAWViewer:
+    description: Generic embedded PAW workspace viewer. Opens any PAW URL inside the
+      portal via same-origin iframe proxy. Use when embedding arbitrary PAW content.
+    props:
+      pawUrl: PAW embed URL
+      pawType: 'Type hint: cube_viewer, dimension_editor, book'
+    default_width: 4
+    default_height: lg
+    data_source_type: paw
+  DimensionControl:
+    description: Dimension filter broadcaster. Renders dropdowns for one or more TM1
+      dimensions and broadcasts the selected elements as filters to all other widgets
+      on the page. Use to add interactive slicers to a dashboard.
+    props:
+      dimensions: 'Comma-separated dimension names, e.g. entity,year,version'
+      scope: '''page'' (default) or ''global'' — page filters only affect current page'
+    default_width: 4
+    default_height: sm
+    data_source_type: tm1_elements

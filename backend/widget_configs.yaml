@@ -1,0 +1,43 @@
+widgets:
+- id: w_1fdce120
+  type: CubeViewer
+  title: "Income Statement Forecast \u2014 gl_pln_forecast"
+  width: 4
+  height: lg
+  props:
+    cube: gl_pln_forecast
+    mdx: SELECT NON EMPTY {[month].[month].[Jul],[month].[month].[Aug],[month].[month].[Sep],[month].[month].[Oct],[month].[month].[Nov],[month].[month].[Dec],[month].[month].[Jan],[month].[month].[Feb],[month].[month].[Mar],[month].[month].[Apr],[month].[month].[May],[month].[month].[Jun],[month].[month].[All_Month]}
+      ON COLUMNS, NON EMPTY {[account].[Grouping].[All_Account].Children} ON ROWS
+      FROM [gl_pln_forecast] WHERE ([measure_gl_pln_forecast].[measure_gl_pln_forecast].[amount],[version].[version].[forecast],[entity].[entity].[All_Entity],[year].[year].[2025],[cost_object].[cost_object].[All_Cost_Object])
+    rows: account
+    columns: month
+    slicers:
+      version: forecast
+      entity: All_Entity
+      year: '2025'
+      cost_object: All_Cost_Object
+      measure_gl_pln_forecast: amount
+dashboards: {}
+pages:
+- id: page_dd0b50e2
+  name: Monthly Overview
+  widgets:
+  - id: widget-1773385562107
+    type: PAWCubeViewer
+    title: PA Cube Viewer
+    width: 3
+    height: lg
+    props:
+      pawType: cube_viewer
+      cube: gl_pln_forecast
+      view: pln_income_statement_forecast
+      pawUrl: ''
+  is_default: true
+- id: page_0d1d2883
+  name: P&L
+  widgets: []
+  is_default: false
+- id: page_2295c9c5
+  name: Debt
+  widgets: []
+  is_default: false
