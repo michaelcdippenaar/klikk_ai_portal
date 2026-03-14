@@ -130,7 +130,7 @@ function handleLogout() {
       <!-- Settings section (expandable) -->
       <div
         class="sidebar-item"
-        :class="{ active: settingsOpen || ['/context', '/skills', '/settings/paw'].includes(route.path) }"
+        :class="{ active: settingsOpen || ['/context', '/skills', '/setup', '/settings/paw', '/settings/monitor'].includes(route.path) }"
         @click="settingsOpen = !settingsOpen"
       >
         <i class="pi pi-cog text-sm flex-shrink-0 w-5 text-center" />
@@ -146,6 +146,14 @@ function handleLogout() {
         </transition>
       </div>
       <template v-if="settingsOpen && !appStore.sidebarCollapsed">
+        <div
+          class="sidebar-item sidebar-subitem"
+          :class="{ active: route.path === '/setup' }"
+          @click="router.push('/setup')"
+        >
+          <i class="pi pi-key text-sm flex-shrink-0 w-5 text-center" />
+          <span class="whitespace-nowrap">Credentials</span>
+        </div>
         <div
           class="sidebar-item sidebar-subitem"
           :class="{ active: route.path === '/context' }"
@@ -169,6 +177,14 @@ function handleLogout() {
         >
           <i class="pi pi-desktop text-sm flex-shrink-0 w-5 text-center" />
           <span class="whitespace-nowrap">PAW Diagnostics</span>
+        </div>
+        <div
+          class="sidebar-item sidebar-subitem"
+          :class="{ active: route.path === '/settings/monitor' }"
+          @click="router.push('/settings/monitor')"
+        >
+          <i class="pi pi-chart-line text-sm flex-shrink-0 w-5 text-center" />
+          <span class="whitespace-nowrap">Agent Monitor</span>
         </div>
       </template>
     </nav>

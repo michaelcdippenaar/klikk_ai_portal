@@ -45,7 +45,14 @@ def _build_tool_description() -> str:
         prop_str = ", ".join(f"{k} ({v})" for k, v in props.items())
         lines.append(f"- {name}: {desc}. Props: {prop_str}")
     lines.append(
-        "\n\nIMPORTANT: Always build valid MDX queries. Use dimension/element names from the model."
+        "\n\nIMPORTANT RULES:"
+        "\n1. For TM1 cube widgets: build valid MDX queries using dimension/element names from the model."
+        "\n2. For charts with non-TM1 data (SQL, investments, web data): you MUST first fetch the data "
+        "(using pg_query_financials, pg_get_share_data, investment_price_performance, etc.), "
+        "then pass headers+rows to the chart widget. NEVER create a chart without data."
+        "\n3. Example: to chart dividends, first call investment_dividend_analysis to get data, "
+        "then create_dashboard_widget with headers=['Year','Amount'] and rows=[[2021,310],[2022,1125]]."
+        "\n4. DataGrid, BarChart, LineChart, PieChart all accept headers+rows for inline data."
     )
     return "\n".join(lines)
 
@@ -148,7 +155,7 @@ def create_dashboard_widget(
         if mdx:
             props["mdx"] = mdx
 
-    if widget_type == "DataGrid" and "rows" in props:
+    if "rows" in props and widget_type in ("DataGrid", "BarChart", "LineChart", "PieChart"):
         data = {"headers": props.get("headers", []), "rows": props["rows"]}
 
     # Pre-fetch MDX data so the widget renders instantly (no frontend API call)

@@ -34,6 +34,8 @@ from api.logs import router as logs_router
 from api.skills import router as skills_router
 from api.context import router as context_router
 from api.sql import router as sql_router
+from api.credentials import router as credentials_router
+from api.monitor import router as monitor_router
 from logger import log
 
 
@@ -48,6 +50,13 @@ async def lifespan(app: FastAPI):
              extra={"provider": provider, "model": model})
     log.info("TM1: %s:%s", settings.tm1_host, settings.tm1_port)
     log.info("PG:  %s:%s/%s", settings.pg_bi_host, settings.pg_bi_port, settings.pg_bi_db)
+
+    # Ensure credential DB table exists
+    try:
+        import credential_store
+        credential_store.ensure_tables()
+    except Exception:
+        log.warning("Credential store init failed", exc_info=True)
 
     # Ensure widget DB tables exist
     try:
@@ -65,11 +74,16 @@ async def lifespan(app: FastAPI):
     import refresh_engine
     _refresh_task = asyncio.create_task(refresh_engine.refresh_loop(interval=30))
 
+    # Start daily dividend calendar update
+    from mcp_server.skills.dividend_forecast import dividend_calendar_loop
+    _dividend_task = asyncio.create_task(dividend_calendar_loop(interval_hours=24))
+
     yield
 
     # Shutdown
     refresh_engine.stop()
     _refresh_task.cancel()
+    _dividend_task.cancel()
     log.info("Klikk AI Portal shutting down")
 
 
@@ -100,11 +114,22 @@ app.include_router(logs_router, prefix="/api/logs")
 app.include_router(skills_router, prefix="/api/skills")
 app.include_router(context_router, prefix="/api/context")
 app.include_router(sql_router, prefix="/api/sql")
+app.include_router(credentials_router, prefix="/api/credentials")
+app.include_router(monitor_router, prefix="/api/monitor")
 
 
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "service": "klikk-ai-portal"}
+
+
+@app.get("/api/config")
+async def get_config():
+    """Public config for the frontend (e.g. external AI agent WebSocket URL)."""
+    from config import settings
+    return {
+        "ai_agent_ws_url": settings.ai_agent_ws_url or None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +140,16 @@ _AUTH_WHITELIST = {
     "/api/auth/login",
     "/api/auth/refresh",
     "/api/health",
+    "/api/config",
+    "/api/chat/internal",
 }
+
+# Prefixes that skip auth (read-only management endpoints)
+_AUTH_SKIP_PREFIXES = (
+    "/api/skills/",
+    "/api/credentials/",
+    "/api/monitor/",
+)
 
 
 @app.middleware("http")
@@ -138,6 +172,7 @@ async def auth_middleware(request: Request, call_next):
     if (
         not path.startswith("/api/")
         or path in _AUTH_WHITELIST
+        or path.startswith(_AUTH_SKIP_PREFIXES)
         or path.startswith("/api/v1/")
         or request.method == "OPTIONS"
         or "upgrade" in request.headers.get("connection", "").lower()

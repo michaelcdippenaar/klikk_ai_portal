@@ -170,6 +170,59 @@ def web_search_news(
         return {"error": f"News search failed: {e}"}
 
 
+def _publish_article(
+    url: str = "",
+    title: str = "",
+    content: str = "",
+    source_label: str = "",
+) -> dict[str, Any]:
+    """
+    Fetch a web article (or use provided content) and create a TextBox widget
+    on the dashboard with markdown rendering and source link.
+    """
+    from mcp_server.skills.widget_generation import create_dashboard_widget
+
+    # If content not provided, fetch from URL
+    if not content and url:
+        fetched = web_fetch_page(url, max_chars=12000)
+        if "error" in fetched:
+            return fetched
+        content = fetched.get("content", "")
+        if not title:
+            title = fetched.get("title", "Article")
+    elif not content and not url:
+        return {"error": "Provide either a URL to fetch or content to display."}
+
+    if not title:
+        title = "Article"
+
+    # Build widget props
+    props = {
+        "content": content,
+        "markdown": True,
+    }
+    if url:
+        props["sourceUrl"] = url
+    if source_label:
+        props["sourceTitle"] = source_label
+    elif url:
+        # Auto-detect source from domain
+        try:
+            from urllib.parse import urlparse
+            domain = urlparse(url).netloc.replace("www.", "")
+            props["sourceTitle"] = domain
+        except Exception:
+            pass
+
+    return create_dashboard_widget(
+        widget_type="TextBox",
+        title=title,
+        props=props,
+        width=3,
+        height="lg",
+    )
+
+
 # ---------------------------------------------------------------------------
 #  Tool schemas
 # ---------------------------------------------------------------------------
@@ -250,8 +303,43 @@ if settings.web_search_enabled:
         },
     ]
 
+    TOOL_SCHEMAS.append({
+        "name": "publish_article",
+        "description": (
+            "Fetch a web article and display it in a dashboard widget. "
+            "Combines web_fetch_page + widget creation in one step. "
+            "The article is rendered with markdown formatting, headings, and a source link badge. "
+            "Use when the user says 'put that article in a widget', 'show me that on the dashboard', "
+            "or after a web search when the user wants to read the full article."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "URL of the article to fetch and display",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Widget title (auto-detected from page if omitted)",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Pre-written markdown content to display instead of fetching a URL. "
+                                   "Use this to write a summary, report, or analysis directly.",
+                },
+                "source_label": {
+                    "type": "string",
+                    "description": "Label for the source badge, e.g. 'Bloomberg', 'Wikipedia'",
+                },
+            },
+            "required": [],
+        },
+    })
+
     TOOL_FUNCTIONS = {
         "web_search": web_search,
         "web_fetch_page": web_fetch_page,
         "web_search_news": web_search_news,
+        "publish_article": _publish_article,
     }

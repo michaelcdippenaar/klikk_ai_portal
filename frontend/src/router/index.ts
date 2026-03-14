@@ -53,10 +53,22 @@ const router = createRouter({
       meta: { title: 'Skills', icon: 'pi pi-cog' },
     },
     {
+      path: '/setup',
+      name: 'setup',
+      component: () => import('../views/SetupView.vue'),
+      meta: { title: 'Setup', icon: 'pi pi-wrench' },
+    },
+    {
       path: '/settings/paw',
       name: 'paw-diagnostics',
       component: () => import('../views/PAWDiagnosticsView.vue'),
       meta: { title: 'PAW Diagnostics', icon: 'pi pi-desktop' },
+    },
+    {
+      path: '/settings/monitor',
+      name: 'agent-monitor',
+      component: () => import('../views/MonitorView.vue'),
+      meta: { title: 'Agent Monitor', icon: 'pi pi-chart-line' },
     },
   ],
 })

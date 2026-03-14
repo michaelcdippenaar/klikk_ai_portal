@@ -16,9 +16,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from logger import log
-from auth_middleware import verify_ws_token
+from auth_middleware import require_auth, verify_ws_token
 
 router = APIRouter()
 
@@ -66,7 +66,7 @@ def _save_session_history(session_id: str, messages: list[dict], paw_context: di
     if paw_context:
         payload["paw_context"] = paw_context
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+        json.dump(payload, f, indent=2, default=str)
 
 
 def _ts() -> str:
@@ -88,6 +88,8 @@ def _log_turn(
     tool_calls: list,
     widgets: list,
     error: str | None = None,
+    skills_routed: list[str] | None = None,
+    skills_used: list[str] | None = None,
 ) -> None:
     """Append one full turn (user + tools + assistant) to the session log."""
     sep = "=" * 72
@@ -97,6 +99,13 @@ def _log_turn(
         f"{sep}\n\n",
         f"USER:\n{user_message}\n\n",
     ]
+
+    if skills_routed:
+        lines.append(f"SKILLS ROUTED: {', '.join(skills_routed)}\n")
+    if skills_used:
+        lines.append(f"SKILLS USED:   {', '.join(skills_used)}\n")
+    if skills_routed or skills_used:
+        lines.append("\n")
 
     if tool_calls:
         lines.append("TOOL CALLS:\n")
@@ -166,10 +175,38 @@ def _store_turn_in_pgvector(
         log.warning("pgvector context store failed (%dms)", dur, exc_info=True)
 
 
-def _run_agent_sync(prompt: str, history: list[dict], model: str = "") -> tuple[str, list]:
+def _broadcast_to_observer(session_id: str, role: str, content: str, **extra) -> None:
+    """Fire-and-forget POST to Django WebSocket broadcast endpoint."""
+    try:
+        import httpx
+        payload = {"session_id": session_id, "role": role, "content": content, "type": "message", **extra}
+        httpx.post("http://192.168.1.235:8001/api/ai-agent/ws/broadcast/", json=payload, timeout=2)
+    except Exception:
+        log.debug("Failed to broadcast to Django observer", exc_info=True)
+
+
+def _run_agent_sync(
+    prompt: str, history: list[dict], model: str = "", progress_fn=None
+) -> tuple[str, list, list[str], dict]:
     """Run the agent synchronously (existing core.run_agent)."""
-    from core import run_agent
-    return run_agent(prompt, history, model_override=model or None)
+    if progress_fn:
+        from progress_context import set_progress_callback, clear_progress_callback
+        set_progress_callback(progress_fn)
+    try:
+        from core import run_agent
+        return run_agent(prompt, history, model_override=model or None)
+    finally:
+        if progress_fn:
+            clear_progress_callback()
+
+
+async def _safe_send(ws: WebSocket, data: dict) -> bool:
+    """Send JSON to WebSocket, returning False if connection is lost."""
+    try:
+        await ws.send_text(json.dumps(data, default=str))
+        return True
+    except (WebSocketDisconnect, RuntimeError, ConnectionError):
+        return False
 
 
 @router.websocket("/chat")
@@ -257,21 +294,46 @@ async def websocket_chat(ws: WebSocket, token: str = Query(default=None)):
             # Add user message to history (store original content for display)
             history.append({"role": "user", "content": content})
 
+            # Broadcast user message to Django observer
+            _broadcast_to_observer(session_id, "user", content)
+
             # Notify client we're thinking
-            await ws.send_json({"type": "thinking"})
+            if not await _safe_send(ws, {"type": "thinking"}):
+                break
             import time as _time
             _turn_t0 = _time.monotonic()
 
             try:
-                # Run agent in thread pool (it's synchronous); pass prompt with widget context
+                # Run agent in thread pool (it's synchronous); pass prompt with widget context.
+                # Progress messages from tools are sent via a queue drained concurrently.
                 loop = asyncio.get_event_loop()
-                response_text, tool_calls = await loop.run_in_executor(
-                    None, _run_agent_sync, prompt, history[:-1], model_override
-                )
+                _progress_queue: asyncio.Queue = asyncio.Queue()
+                _stop_drain = asyncio.Event()
+
+                def _progress_cb(msg: dict) -> None:
+                    loop.call_soon_threadsafe(_progress_queue.put_nowait, msg)
+
+                async def _drain_progress() -> None:
+                    while not _stop_drain.is_set() or not _progress_queue.empty():
+                        try:
+                            msg = await asyncio.wait_for(_progress_queue.get(), timeout=0.15)
+                            await _safe_send(ws, msg)
+                        except asyncio.TimeoutError:
+                            pass
+
+                _drain_task = asyncio.create_task(_drain_progress())
+                try:
+                    response_text, tool_calls, skills_routed, usage = await loop.run_in_executor(
+                        None, _run_agent_sync, prompt, history[:-1], model_override, _progress_cb
+                    )
+                finally:
+                    _stop_drain.set()
+                    await _drain_task
                 _agent_ms = int((_time.monotonic() - _turn_t0) * 1000)
-                log.info("Chat turn: agent completed in %dms (%d tool calls)",
-                         _agent_ms, len(tool_calls),
-                         extra={"session_id": session_id, "duration_ms": _agent_ms})
+                log.info("Chat turn: agent completed in %dms (%d tool calls, skills: %s)",
+                         _agent_ms, len(tool_calls), ", ".join(skills_routed),
+                         extra={"session_id": session_id, "duration_ms": _agent_ms,
+                                "skills_routed": skills_routed})
 
                 # Extract widgets from tool calls
                 widgets = []
@@ -285,6 +347,7 @@ async def websocket_chat(ws: WebSocket, token: str = Query(default=None)):
                         "input": tc.input,
                         "result": result,
                         "id": getattr(tc, "tool_use_id", ""),
+                        "skill": getattr(tc, "skill", ""),
                     }
                     # Detect tool-level errors
                     if isinstance(result, dict) and result.get("error"):
@@ -294,12 +357,13 @@ async def websocket_chat(ws: WebSocket, token: str = Query(default=None)):
                     serialized_calls.append(call_data)
 
                     # Send each tool call as it happens
-                    await ws.send_text(json.dumps({
+                    await _safe_send(ws, {
                         "type": "tool_call",
                         "name": tc.name,
                         "input": tc.input,
                         "id": getattr(tc, "tool_use_id", ""),
-                    }, default=str))
+                        "skill": getattr(tc, "skill", ""),
+                    })
 
                     # Check if any tool returned widget(s) (widget_generation, paw_integration, report_builder)
                     if isinstance(tc.result, dict) and tc.result.get("status") == "widget_created":
@@ -315,17 +379,30 @@ async def websocket_chat(ws: WebSocket, token: str = Query(default=None)):
                     assistant_msg["error_details"] = error_details
                 history.append(assistant_msg)
 
-                # Keep history manageable (last 40 messages)
-                if len(history) > 40:
-                    _sessions[session_id] = history[-40:]
+                # Broadcast assistant response to Django observer
+                _broadcast_to_observer(
+                    session_id, "assistant", response_text,
+                    tool_calls=[tc.get("name", "?") for tc in serialized_calls],
+                    skills_routed=skills_routed,
+                )
+
+                # Keep history manageable (last 20 messages to stay within TPM limits)
+                if len(history) > 20:
+                    _sessions[session_id] = history[-20:]
 
                 # Persist full history to JSON (for multiple chats / recall), with PAW context
                 _save_session_history(session_id, _sessions[session_id], paw_context=paw_ctx)
 
+                # Collect unique skills actually used (from tool calls)
+                skills_used = sorted(set(
+                    tc.skill for tc in tool_calls if getattr(tc, "skill", "")
+                ))
+
                 # Persist turn to session log file (flag tool errors)
                 _log_turn(session_id, content, response_text,
                           serialized_calls, widgets,
-                          error="\n".join(error_details) if error_details else None)
+                          error="\n".join(error_details) if error_details else None,
+                          skills_routed=skills_routed, skills_used=skills_used)
 
                 # Store both turns in pgvector conversation context (best-effort)
                 _store_turn_in_pgvector(session_id, content, response_text, paw_ctx)
@@ -341,11 +418,14 @@ async def websocket_chat(ws: WebSocket, token: str = Query(default=None)):
                     "content": response_text,
                     "tool_calls": serialized_calls,
                     "widgets": widgets,
+                    "skills_routed": skills_routed,
+                    "skills_used": skills_used,
+                    "usage": usage,
                 }
                 if has_errors:
                     response_payload["has_errors"] = True
                     response_payload["error_count"] = len(error_details)
-                await ws.send_text(json.dumps(response_payload, default=str))
+                await _safe_send(ws, response_payload)
 
                 # Fire-and-forget post-processing (after response already sent)
                 try:
@@ -362,15 +442,96 @@ async def websocket_chat(ws: WebSocket, token: str = Query(default=None)):
                           exc_info=True)
                 _log_turn(session_id, content, "", [], [],
                           error=f"{type(e).__name__}: {e}")
-                await ws.send_json({
+                # User-friendly error messages for common failures
+                err_type = type(e).__name__
+                err_str = str(e)
+                if "RateLimit" in err_type or "429" in err_str:
+                    user_msg = "The AI service is temporarily overloaded. Please wait a moment and try again."
+                elif "Timeout" in err_type or "timed out" in err_str.lower():
+                    user_msg = "The request timed out. Please try again or simplify your question."
+                elif "APIConnectionError" in err_type or "Connection" in err_type:
+                    user_msg = "Could not connect to the AI service. Please check your connection and try again."
+                else:
+                    user_msg = f"{err_type}: {err_str}"
+                await _safe_send(ws, {
                     "type": "error",
-                    "message": f"{type(e).__name__}: {str(e)}",
+                    "message": user_msg,
                 })
 
     except WebSocketDisconnect:
-        log.debug("WebSocket disconnected: %s", session_id)
+        log.debug("WebSocket disconnected: %s", locals().get("session_id", "unknown"))
     except Exception:
         log.error("WebSocket unexpected error", exc_info=True)
+
+
+_INTERNAL_SECRET = "klikk-internal-dev-2026"
+
+
+@router.post("/chat/internal")
+async def internal_chat(request_data: dict, x_internal_secret: str = None):
+    """
+    Internal endpoint for Claude Code to send messages to the agent.
+    Bypasses WebSocket auth — protected by shared secret header.
+
+    POST /api/chat/internal
+    Headers: X-Internal-Secret: klikk-internal-dev-2026
+    Body: { "session_id": "...", "content": "..." }
+    """
+    from fastapi import Header, Request
+    from fastapi.responses import JSONResponse
+
+    secret = request_data.get("secret", "")
+    if secret != _INTERNAL_SECRET:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    session_id = request_data.get("session_id", "default")
+    content = request_data.get("content", "").strip()
+    if not content:
+        return {"error": "empty content"}
+
+    # Get or create session history
+    if session_id not in _sessions:
+        _sessions[session_id] = _load_session_history(session_id)
+    history = _sessions[session_id]
+
+    history.append({"role": "user", "content": content})
+    _broadcast_to_observer(session_id, "user", content)
+
+    import time as _time
+    t0 = _time.monotonic()
+    loop = asyncio.get_event_loop()
+    try:
+        response_text, tool_calls, skills_routed, usage = await loop.run_in_executor(
+            None, _run_agent_sync, content, history[:-1], "", None
+        )
+    except Exception as e:
+        return {"error": str(e)}
+
+    duration_ms = int((_time.monotonic() - t0) * 1000)
+    usage["duration_ms"] = duration_ms
+
+    assistant_msg: dict[str, Any] = {"role": "assistant", "content": response_text}
+    history.append(assistant_msg)
+    if len(history) > 20:
+        _sessions[session_id] = history[-20:]
+    _save_session_history(session_id, _sessions[session_id])
+
+    serialized_calls = [
+        {"name": tc.name, "skill": getattr(tc, "skill", ""), "input": tc.input}
+        for tc in tool_calls
+    ]
+    _broadcast_to_observer(session_id, "assistant", response_text,
+                           tool_calls=[tc["name"] for tc in serialized_calls],
+                           skills_routed=skills_routed)
+
+    return {
+        "session_id": session_id,
+        "response": response_text,
+        "tool_calls": serialized_calls,
+        "skills_routed": skills_routed,
+        "usage": usage,
+    }
 
 
 @router.post("/chat/clear")
@@ -423,3 +584,94 @@ async def create_session():
     _sessions[session_id] = []
     _save_session_history(session_id, [])
     return {"session_id": session_id, "status": "created"}
+
+
+# ---------------------------------------------------------------------------
+# REST send message — run agent and return response (no WebSocket)
+# ---------------------------------------------------------------------------
+
+def _run_turn_rest(session_id: str, content: str, model_override: str = "") -> dict:
+    """
+    Run one agent turn synchronously: load history, run agent, append to history,
+    persist, return response. Used by POST /chat/send.
+    """
+    import time as _time
+    if session_id not in _sessions:
+        _sessions[session_id] = _load_session_history(session_id)
+    history = _sessions[session_id]
+    history.append({"role": "user", "content": content})
+
+    prompt = content
+    t0 = _time.monotonic()
+    try:
+        response_text, tool_calls, skills_routed, usage = _run_agent_sync(
+            prompt, history[:-1], model_override
+        )
+    except Exception as e:
+        history.pop()  # remove the user message we just added
+        raise
+
+    serialized_calls = []
+    widgets = []
+    has_errors = False
+    for tc in tool_calls:
+        result = tc.result if isinstance(tc.result, (dict, list, str)) else str(tc.result)
+        serialized_calls.append({
+            "name": tc.name,
+            "input": tc.input,
+            "result": result,
+            "id": getattr(tc, "tool_use_id", ""),
+            "skill": getattr(tc, "skill", ""),
+        })
+        if isinstance(result, dict) and result.get("error"):
+            has_errors = True
+        if isinstance(tc.result, dict) and tc.result.get("status") == "widget_created":
+            if "widget" in tc.result:
+                widgets.append(tc.result["widget"])
+            if "widgets" in tc.result and isinstance(tc.result["widgets"], list):
+                widgets.extend(tc.result["widgets"])
+    skills_used = sorted(set(getattr(tc, "skill", "") for tc in tool_calls if getattr(tc, "skill", "")))
+
+    assistant_msg: dict = {"role": "assistant", "content": response_text}
+    if has_errors:
+        assistant_msg["has_errors"] = True
+    history.append(assistant_msg)
+    if len(history) > 20:
+        _sessions[session_id] = history[-20:]
+    _save_session_history(session_id, _sessions[session_id])
+    _log_turn(session_id, content, response_text, serialized_calls, widgets, skills_routed=skills_routed, skills_used=skills_used)
+
+    return {
+        "session_id": session_id,
+        "content": response_text,
+        "tool_calls": serialized_calls,
+        "widgets": widgets,
+        "skills_routed": skills_routed,
+        "skills_used": skills_used,
+        "usage": usage,
+        "has_errors": has_errors,
+        "duration_ms": int((_time.monotonic() - t0) * 1000),
+    }
+
+
+@router.post("/chat/send")
+async def send_message_rest(
+    body: dict,
+    user: dict = Depends(require_auth),
+):
+    """
+    Send a message and get the agent response (REST alternative to WebSocket).
+    Body: { "session_id": "default", "message": "...", "model": "" }
+    Requires: Authorization: Bearer <jwt>
+    """
+    session_id = body.get("session_id", "default")
+    message = (body.get("message") or body.get("content") or "").strip()
+    if not message:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="message is required")
+    model_override = body.get("model", "")
+    try:
+        return _run_turn_rest(session_id, message, model_override)
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))

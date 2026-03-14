@@ -79,6 +79,30 @@ function goToDashboard() {
         <div v-html="htmlContent" class="prose prose-invert prose-sm max-w-none" />
       </div>
 
+      <!-- Skills & tools summary -->
+      <div v-if="message.skills_used && message.skills_used.length > 0" class="flex flex-wrap items-center gap-1.5 px-1">
+        <span class="text-[10px] text-[--klikk-text-muted]">Skills:</span>
+        <span
+          v-for="skill in message.skills_used"
+          :key="skill"
+          class="text-[10px] px-1.5 py-0.5 rounded-full bg-[--klikk-primary]/10 text-[--klikk-primary] font-medium"
+        >{{ skill }}</span>
+        <span class="text-[10px] text-[--klikk-text-muted] ml-1">
+          ({{ message.tool_calls?.length || 0 }} tool{{ (message.tool_calls?.length || 0) !== 1 ? 's' : '' }} called)
+        </span>
+      </div>
+
+      <!-- Token usage -->
+      <div v-if="message.usage" class="flex items-center gap-2 px-1 text-[10px] text-[--klikk-text-muted]">
+        <span :title="`${message.usage.input_tokens} input + ${message.usage.output_tokens} output`">
+          <i class="pi pi-bolt text-[9px] mr-0.5" />{{ (message.usage.input_tokens + message.usage.output_tokens).toLocaleString() }} tokens
+        </span>
+        <span v-if="message.usage.duration_ms" :title="`Agent processing time`">
+          <i class="pi pi-clock text-[9px] mr-0.5" />{{ (message.usage.duration_ms / 1000).toFixed(1) }}s
+        </span>
+        <span v-if="message.usage.model" class="opacity-60">{{ message.usage.model }}</span>
+      </div>
+
       <!-- Tool calls -->
       <div v-if="message.tool_calls && message.tool_calls.length > 0" class="space-y-1">
         <ToolCallCard

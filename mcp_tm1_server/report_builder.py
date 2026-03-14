@@ -91,6 +91,17 @@ CUBE_PROFILES = {
         "default_rows": "listed_share",
         "default_cols": "month",
     },
+    "listed_share_pln_forecast": {
+        "keywords": ["dividend forecast", "dividend budget", "share forecast",
+                      "dps forecast", "dividend plan", "pln forecast",
+                      "declared_dividend"],
+        "dimensions": ["year", "month", "version", "entity", "listed_share",
+                       "listed_share_transaction_type", "input_type",
+                       "measure_listed_share_pln_forecast"],
+        "default_measure": "dividends_per_share",
+        "default_rows": "listed_share",
+        "default_cols": "month",
+    },
     "listed_share_cal_flow_metrics": {
         "keywords": ["share performance", "share returns", "twrr", "total return",
                       "capital return", "income return", "dividend yield", "share metrics"],

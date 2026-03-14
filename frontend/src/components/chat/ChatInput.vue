@@ -22,7 +22,7 @@ function handleKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="px-3 pt-2 pb-3 border-t border-[--klikk-border] bg-[--klikk-bg]">
+  <div class="px-3 pt-2 pb-3 border-t border-[--klikk-border] bg-[--klikk-bg] flex-shrink-0">
     <div class="flex items-end gap-2">
       <textarea
         v-model="input"

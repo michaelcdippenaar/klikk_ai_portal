@@ -52,7 +52,7 @@ function handleSend(text: string) {
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col h-full min-h-0">
     <!-- Messages -->
     <div ref="messagesContainer" class="flex-1 overflow-y-auto px-4 py-4 space-y-4">
       <div v-if="chatStore.messages.length === 0" class="flex flex-col items-center justify-center h-full text-center">
@@ -79,8 +79,8 @@ function handleSend(text: string) {
         <div class="chat-message-assistant px-4 py-3 text-sm flex-1">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2 text-[--klikk-text-secondary]">
-              <span>Thinking</span>
-              <span class="animate-pulse">...</span>
+              <span>{{ chatStore.currentStatus || 'Thinking...' }}</span>
+              <span v-if="!chatStore.currentStatus" class="animate-pulse">...</span>
               <span class="text-[10px] text-[--klikk-text-muted]">{{ elapsed }}s</span>
             </div>
             <button
@@ -92,6 +92,18 @@ function handleSend(text: string) {
               Stop
             </button>
           </div>
+          <!-- Progress log — shows last 6 status messages -->
+          <div v-if="chatStore.statusLog.length > 1" class="mt-1.5 space-y-0.5">
+            <div
+              v-for="(msg, i) in chatStore.statusLog.slice(0, -1)"
+              :key="i"
+              class="text-[10px] text-[--klikk-text-muted] flex items-center gap-1"
+              :class="{ 'opacity-40': i < chatStore.statusLog.length - 3 }"
+            >
+              <i class="pi pi-check text-[8px] text-green-500/70" />
+              {{ msg }}
+            </div>
+          </div>
           <div v-if="chatStore.currentToolCalls.length > 0" class="mt-2 space-y-1.5">
             <div
               v-for="tc in chatStore.currentToolCalls"
@@ -101,6 +113,7 @@ function handleSend(text: string) {
               <div class="flex items-center gap-1">
                 <i class="pi pi-cog text-[--klikk-secondary] text-[10px]" />
                 <span class="font-medium text-[--klikk-text-secondary]">{{ tc.name }}</span>
+                <span v-if="tc.skill" class="text-[9px] px-1 py-0.5 rounded bg-[--klikk-primary]/10 text-[--klikk-primary]">{{ tc.skill }}</span>
                 <span class="text-[9px] text-[--klikk-text-muted]">
                   {{ Math.floor((Date.now() - tc.startedAt) / 1000) }}s
                 </span>

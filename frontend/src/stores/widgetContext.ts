@@ -27,9 +27,21 @@ export interface AttachedWidget {
   dataPreview?: string // Stringified first few rows
 }
 
+export interface MonitorContext {
+  healthStatus?: string
+  totalCalls?: number
+  errorCount?: number
+  avgDuration?: string
+  slowToolCount?: number
+  recentErrors?: string[]
+  topTools?: string[]
+  liveActivity?: string
+}
+
 export const useWidgetContextStore = defineStore('widgetContext', () => {
   const pawContext = ref<PAWWidgetContext | null>(null)
   const attachedWidgets = ref<AttachedWidget[]>([])
+  const monitorContext = ref<MonitorContext | null>(null)
 
   function setPawContext(partial: Partial<PAWWidgetContext>) {
     pawContext.value = {
@@ -77,6 +89,14 @@ export const useWidgetContextStore = defineStore('widgetContext', () => {
     attachedWidgets.value = []
   }
 
+  function setMonitorContext(ctx: MonitorContext | null) {
+    monitorContext.value = ctx
+  }
+
+  function clearMonitorContext() {
+    monitorContext.value = null
+  }
+
   /** Summary string for the agent (included with the user message). */
   const summaryForAgent = computed(() => {
     const parts: string[] = []
@@ -98,6 +118,21 @@ export const useWidgetContextStore = defineStore('widgetContext', () => {
       if (w.mdx) wParts.push(`MDX: ${w.mdx}`)
       if (w.dataPreview) wParts.push(`data: ${w.dataPreview}`)
       parts.push(`[Widget context: ${wParts.join(', ')}]`)
+    }
+
+    // Monitor dashboard context
+    const m = monitorContext.value
+    if (m) {
+      const mParts: string[] = []
+      if (m.healthStatus) mParts.push(`health: ${m.healthStatus}`)
+      if (m.totalCalls != null) mParts.push(`total tool calls: ${m.totalCalls}`)
+      if (m.errorCount != null) mParts.push(`errors: ${m.errorCount}`)
+      if (m.avgDuration) mParts.push(`avg duration: ${m.avgDuration}`)
+      if (m.slowToolCount != null) mParts.push(`slow tools: ${m.slowToolCount}`)
+      if (m.topTools?.length) mParts.push(`top tools: ${m.topTools.join(', ')}`)
+      if (m.recentErrors?.length) mParts.push(`recent errors: ${m.recentErrors.join('; ')}`)
+      if (m.liveActivity) mParts.push(`live: ${m.liveActivity}`)
+      parts.push(`[Monitor context: ${mParts.join(', ')}]`)
     }
 
     return parts.length ? parts.join('\n') : null
@@ -141,12 +176,15 @@ export const useWidgetContextStore = defineStore('widgetContext', () => {
   return {
     pawContext,
     attachedWidgets,
+    monitorContext,
     setPawContext,
     updateFromEvent,
     clear,
     attachWidget,
     detachWidget,
     clearAttached,
+    setMonitorContext,
+    clearMonitorContext,
     summaryForAgent,
     canSaveView,
     saveCurrentView,

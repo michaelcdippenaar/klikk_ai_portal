@@ -17,11 +17,11 @@ class Settings(BaseSettings):
 
     # --- OpenAI ---
     openai_api_key: str = ""
-    openai_model: str = "gpt-4o"
+    openai_model: str = "gpt-4o-mini"
 
     # --- Shared AI settings ---
-    max_tokens: int = 4096
-    max_tool_rounds: int = 10
+    max_tokens: int = 2048
+    max_tool_rounds: int = 8
 
     # --- VoyageAI embeddings ---
     voyage_api_key: str = ""
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     # --- RAG ---
     rag_schema: str = "agent_rag"
-    rag_top_k: int = 5
+    rag_top_k: int = 3
     rag_min_score: float = 0.60
 
     # --- PAW (Planning Analytics Workspace) ---
@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     # --- Authentication ---
     auth_api_url: str = "http://192.168.1.235:8001"  # Klikk Financials V4 base URL
     auth_required: bool = True  # Set to false to disable auth during development
+
+    # --- External AI agent WebSocket (optional) ---
+    # When set, the portal chat connects to this Django Channels WebSocket instead of the portal's own agent.
+    # Example: ws://192.168.1.235:8001/ws/ai-agent/chat/ or .../chat/<session_id>/
+    ai_agent_ws_url: str = ""
 
     # --- Klikk Financials API (vectorized RAG, corpora search) ---
     financials_api_token: str = ""  # Optional. Bearer token to call api/ai-agent/corpora/ and search.
@@ -85,6 +90,18 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def get_credential(key: str) -> str:
+    """Get a credential — checks DB first (with 60s cache), falls back to .env.
+
+    Usage:
+        api_key = get_credential("anthropic_api_key")
+    """
+    from credential_store import get_credential as _db_get
+    fallback = getattr(settings, key, "")
+    return _db_get(key, fallback=fallback)
+
 
 # Convenience dict for TM1py TM1Service constructor
 TM1_CONFIG = {

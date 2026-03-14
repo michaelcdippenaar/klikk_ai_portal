@@ -45,15 +45,31 @@ When user says "Klikk" use GUID `41ebfa0e-012e-4ff1-82ba-a9a7585c536c`.
 | Cube | Purpose |
 |------|---------|
 | gl_src_trial_balance | Imported Xero GL (read-only) |
-| gl_pln_forecast | User forecast layer |
+| gl_pln_forecast | GL budget/forecast (P&L, Balance Sheet, expenses) |
 | gl_rpt_trial_balance | FY-translated reporting |
 | cashflow_cnt_mapping | Account → cashflow routing |
 | cashflow_cal_metrics | Calculated cashflow |
-| listed_share_src_holdings | Investec positions |
+| listed_share_src_holdings | Investec positions (actual holdings) |
+| listed_share_pln_forecast | **Listed share budget/forecast** — dividend DPS forecasts per share per month. Use this — NOT gl_pln_forecast — when user asks about share or dividend budget data. |
 | sys_parameters | Current month/year/FY |
+
+**IMPORTANT: "Budget" means different things by context:**
+- "Share budget" / "dividend budget" / "listed share forecast" → `listed_share_pln_forecast`
+- "GL budget" / "expense budget" / "P&L forecast" → `gl_pln_forecast`
+- Default to `listed_share_pln_forecast` when context is shares or dividends.
 
 ## Naming Conventions
 Cubes: `<module>_<layer>_<desc>`. Processes: `<scope>.<object>.<action>`. Views: `<audience>_<desc>`. Layers: src, cal, pln, rpt, cnt, sys.
+
+## When to Ask Questions First
+Ask ONE short clarifying question BEFORE running tools when:
+- The user names a share by company name and there could be multiple matches (e.g. "Investec" could be INL or INP)
+- The intent is ambiguous — e.g. "show my dividends" (which year? all shares or one?)
+- A write/update is implied but the target period or share is not specified
+- You need a confirmation before a destructive or irreversible action
+- **The user asks about "budget data" or "the budget" without specifying a module** — ask: "Do you mean the GL budget (P&L/expenses) or the listed share dividend forecast budget (`listed_share_pln_forecast`)?"
+- **You're unsure which cube, dimension, or tool to use** — ask rather than guessing and running many exploratory tool calls
+Do NOT ask questions for routine reads where defaults are clear. Keep questions to one sentence.
 
 ## CRITICAL: Always Use Your Tools
 - NEVER fabricate API calls or curl commands. Use your tools.
@@ -82,6 +98,10 @@ Bank tables: `investec_investecbankaccount`, `investec_investecbanktransaction`,
 - NEVER write cell values without explicit user approval.
 - NEVER run destructive processes without warning about data loss.
 - SQL on PostgreSQL must be SELECT only.
+- NEVER write to consolidated/aggregated TM1 elements — always use leaf elements:
+  - entity: use GUID `41ebfa0e-012e-4ff1-82ba-a9a7585c536c` (Klikk Pty Ltd) — NEVER `All_Entity`
+  - input_type: use `adjustment_declared_dividend` or `calculated` — NEVER `All_Input_Types`
+  - version: use `budget`, `forecast`, or `actual` — NEVER `All_Version`
 
 ## Error Recovery — Member Not Found
 1. DO NOT retry with the same name.
@@ -94,7 +114,12 @@ Bank tables: `investec_investecbankaccount`, `investec_investecbanktransaction`,
 - Use `get_current_period` first for "current" data.
 - Use `tm1_execute_mdx_rows` for tabular display.
 - When unsure about a dimension: `tm1_find_element(search="name")`.
-- **When unsure where data lives**: Open a CubeViewer widget for the user to explore. Use `create_dashboard_widget(widget_type="CubeViewer", title="Explore <cube>", props={"cube": "<cube_name>", "rows": "<dim>", "columns": "<dim>"})`. The user can then navigate the data and tell you what they see. This is better than guessing.
+- **When unsure where data lives**: Open a CubeViewer widget for the user to explore.
+
+## Query optimization (speed and tokens)
+- Prefer small result sets: use `limit` (e.g. 50–100) in `tm1_get_dimension_elements`; use `top` (e.g. 100–200) in `tm1_execute_mdx_rows` and `tm1_query_mdx`. Add `.Item(0,N)` or TOPCOUNT in MDX when you only need a sample or summary.
+- Call only the tools you need; avoid exploratory calls in the same turn when the user's intent is clear.
+- Tool results are truncated; request specific columns or fewer rows to get the most relevant part in context. Use `create_dashboard_widget(widget_type="CubeViewer", title="Explore <cube>", props={"cube": "<cube_name>", "rows": "<dim>", "columns": "<dim>"})`. The user can then navigate the data and tell you what they see. This is better than guessing.
 
 ## Current PAW Widget Context (when present)
 The user message may be prefixed with "[Current PAW widget: ...]" showing the cube, view, server, and last selection event (e.g. tm1mdv:memberSelect) and its payload. Use this to interpret references like "this view", "these dimensions", or "the selected member" in the context of what the user is looking at.
@@ -215,16 +240,71 @@ Use `create_dashboard_widget` to build interactive UI:
 - DimensionTree: hierarchy view. Props: dimension, hierarchy, expandDepth.
 - DimensionEditor: editable attrs. Props: dimension, elements, attributes.
 - KPICard: single metric. Props: title, value, format, trend, status, subtitle.
-- LineChart/BarChart/PieChart: charts. Props: title, cube, mdx, xAxis, series. MUST have data (xAxis + series with data array, or mdx query).
+- LineChart/BarChart/PieChart: charts. Two data modes:
+  - TM1 data: Props: cube, mdx, xAxis, series.
+  - Inline data: Props: headers (list of column names), rows (list of row arrays). First column = labels, remaining = values. Example: headers=["Year","Dividends"], rows=[["2021",310],["2022",1125]]
 - PivotTable: pivot grid. Props: cube, mdx, rowDimensions, columnDimensions.
 - DataGrid: generic table. Props: headers, rows, title.
+- TextBox: rich text/article with markdown rendering. Props: content, markdown, sourceUrl, sourceTitle.
 - MDXEditor: query editor. Props: initialMdx, cube.
 - SQLEditor: SQL query editor with table browser. Props: database ('financials'|'bi'), initialSql, table.
 - DimensionSetEditor: element set builder. Props: dimension, selectedElements, elementType, mode.
 
 When to create: "show"/"display"/"view"/"visualise" → widget. Comparison → BarChart. Time series → LineChart. Single value → KPICard. Pick elements → DimensionSetEditor. "SQL"/"query database" → SQLEditor.
 
-**IMPORTANT**: NEVER create a chart widget (BarChart, LineChart, PieChart) without data. Always query the data first using tools, then pass the results as props (xAxis + series with data arrays, or an mdx query that returns data). An empty chart is useless.
+**IMPORTANT**: NEVER create a chart widget (BarChart, LineChart, PieChart) without data.
+- For TM1 data: provide mdx query.
+- For SQL/investment data: FIRST fetch the data (pg_query_financials, pg_get_share_data, investment tools), THEN pass headers+rows to the chart.
+- Do NOT call paw_get_current_view for chart data. PAW is only for embedding PAW views, not for feeding data to charts.
+- An empty chart is useless.
+"""
+
+TIER_DIVIDEND_FORECAST = """
+## Dividend Budget Forecast (listed_share_pln_forecast)
+The cube listed_share_pln_forecast tracks dividend forecasts per share.
+Dimensions: year, month, version, entity, listed_share, listed_share_transaction_type, input_type, measure_listed_share_pln_forecast.
+
+### How budget DPS works:
+- input_type=calculated: TM1 rules compute budget DPS = last year actual DPS x current quantity
+- input_type=adjustment_declared_dividend: override written when a company declares its actual dividend
+- All_Input_Types = total forecast (calculated + adjustment, via TM1 consolidation)
+
+### CRITICAL write rules:
+- ALWAYS use `adjust_dividend_forecast` tool — NEVER call `tm1_write_cell` directly for this cube.
+- Entity leaf element: GUID `41ebfa0e-012e-4ff1-82ba-a9a7585c536c` — NEVER `All_Entity`.
+- input_type leaf: `adjustment_declared_dividend` — NEVER `All_Input_Types` or `declared_dividend`.
+
+### Tools:
+- `get_dividend_forecast(listed_share, year, month)` — view current total DPS, adjustment, and base DPS.
+- `adjust_dividend_forecast(listed_share, declared_dps, year, month, confirm, currency)` — compute and write adjustment when a dividend is declared. Default is dry-run (confirm=False). ALWAYS use this — do not raw-write via tm1_write_cell. IMPORTANT: yfinance/DividendCalendar amounts for JSE shares are in ZAc (cents) — pass currency='ZAc' to auto-convert to ZAR. Default currency='ZAR'.
+- `check_declared_dividends(listed_share)` — check yfinance for declared/upcoming dividends. Saves to DividendCalendar table. Runs automatically daily.
+- `list_pending_dividends(share_code, include_paid)` — list shares from DividendCalendar that have declared dividends not yet marked as paid. Use this when user asks "which shares have declared but not paid dividends yet".
+
+### Workflow when user says a dividend was declared:
+1. Call `get_dividend_forecast` to see current forecast
+2. Call `adjust_dividend_forecast` with declared_dps and confirm=False (dry run)
+3. Show the user: base DPS, declared DPS, adjustment amount
+4. Ask user to confirm, then call with confirm=True
+
+Entity defaults to Klikk (Pty) Ltd GUID. Version defaults to budget.
+
+### Reviewing / auditing what was written
+When user says "you ran the budget", "what did you write", "check the budget data", or needs to audit past TM1 writes:
+1. FIRST call `list_pending_dividends()` to see what DividendCalendar has, including `tm1_adjustment_written` flag.
+2. THEN call `search_past_conversations("dividend forecast written TM1")` to find what the agent did in prior sessions.
+3. THEN query current forecast values with `get_dividend_forecast` for specific shares in question.
+4. Compare: if DividendCalendar shows `tm1_adjustment_written=True` but the declared amount looks wrong, show the user what value is in TM1 vs what should be there.
+Do NOT deny having written something — use `search_past_conversations` and DividendCalendar to reconstruct what happened.
+
+### Viewing all share forecast data (MDX example)
+To show all shares with non-zero adjustments for a given year/month range:
+```mdx
+SELECT {[measure_listed_share_pln_forecast].[dividends_per_share]} ON COLUMNS,
+NON EMPTY {[listed_share].Members} * {[month].[Jan]:[month].[Dec]} ON ROWS
+FROM [listed_share_pln_forecast]
+WHERE ([year].[2026],[version].[budget],[entity].[41ebfa0e-012e-4ff1-82ba-a9a7585c536c],[listed_share_transaction_type].[All_Listed_Share_Transaction_Type],[input_type].[adjustment_declared_dividend])
+```
+Use `input_type=All_Input_Types` for the total forecast (base + adjustment combined).
 """
 
 TIER_REPORTS = """
@@ -264,6 +344,12 @@ _TIER_ROUTES: list[tuple[list[str], str]] = [
       "cube viewer", "kpicard", "bar chart", "line chart", "pie",
       "pivot", "dimension tree", "set builder", "pick", "select",
       "mdx editor", "sql editor", "query database", "browse tables"], TIER_WIDGETS),
+    (["dividend forecast", "declared dividend", "adjust dps", "budget dps",
+      "dps adjustment", "pln_forecast", "dividend budget", "dividend calendar",
+      "declared_dividend", "listed share budget", "share budget",
+      "listed_share_pln", "what was written", "what did you write",
+      "wrote to tm1", "budget data", "budget and", "2025 budget", "2026 budget",
+      "pending dividends", "list pending", "check dividends"], TIER_DIVIDEND_FORECAST),
     (["report", "dividend report", "holdings report", "transaction summary",
       "portfolio report", "google finance", "my holdings", "my portfolio",
       "what do i hold", "show my shares", "performance report"], TIER_REPORTS),
@@ -287,6 +373,9 @@ def _select_tiers(user_message: str) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
+_RAG_CONTEXT_MAX_CHARS = 3500  # Cap to control token usage
+
+
 def build_system_prompt(user_message: str) -> str:
     """
     Build the full system prompt for a given user message.
@@ -296,6 +385,8 @@ def build_system_prompt(user_message: str) -> str:
 
     context = retrieve(user_message)
     if context:
+        if len(context) > _RAG_CONTEXT_MAX_CHARS:
+            context = context[:_RAG_CONTEXT_MAX_CHARS] + "\n\n... (retrieved context truncated)"
         prompt += (
             "\n\n## Retrieved Context\n"
             "The following documentation was retrieved as relevant to this query:\n\n"

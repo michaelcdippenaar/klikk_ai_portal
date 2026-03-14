@@ -77,6 +77,15 @@ export interface ToolCall {
   result: any
   id: string
   is_error?: boolean
+  skill?: string
+}
+
+export interface TokenUsage {
+  input_tokens: number
+  output_tokens: number
+  model?: string
+  provider?: string
+  duration_ms?: number
 }
 
 export interface ChatMessage {
@@ -87,4 +96,7 @@ export interface ChatMessage {
   timestamp?: number
   has_errors?: boolean
   error_details?: string[]
+  skills_routed?: string[]
+  skills_used?: string[]
+  usage?: TokenUsage
 }

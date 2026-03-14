@@ -35,11 +35,15 @@ const resultPreview = computed(() => {
         :class="isError ? 'pi-exclamation-circle text-[--klikk-danger]' : 'pi-cog text-[--klikk-secondary]'"
       />
       <span class="font-mono text-[--klikk-text-secondary]">{{ toolCall.name }}</span>
+      <span v-if="toolCall.skill" class="text-[9px] px-1 py-0.5 rounded bg-[--klikk-primary]/10 text-[--klikk-primary] flex-shrink-0">{{ toolCall.skill }}</span>
       <span class="text-[--klikk-text-muted] truncate flex-1 text-left">{{ resultPreview }}</span>
       <i :class="expanded ? 'pi-chevron-up' : 'pi-chevron-down'" class="pi text-[10px] text-[--klikk-text-muted]" />
     </button>
 
     <div v-if="expanded" class="border-t border-[--klikk-border] p-3 space-y-2">
+      <div v-if="toolCall.skill" class="text-[10px] text-[--klikk-text-muted]">
+        Skill module: <span class="font-medium text-[--klikk-primary]">{{ toolCall.skill }}</span>
+      </div>
       <div>
         <div class="text-[--klikk-text-muted] mb-1">Input:</div>
         <pre class="font-mono text-[11px] text-[--klikk-text-secondary] bg-black/20 rounded p-2 overflow-x-auto">{{ JSON.stringify(toolCall.input, null, 2) }}</pre>

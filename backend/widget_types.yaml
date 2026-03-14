@@ -41,31 +41,43 @@ widget_types:
     default_width: 1
     default_height: sm
   LineChart:
-    description: Time series line chart (ECharts)
+    description: Time series line chart (ECharts). For TM1 data use cube+mdx.
+      For SQL/inline data pass headers+rows directly (first column = x-axis labels,
+      remaining columns = series values).
     props:
       title: Chart title
-      cube: Source cube name
-      mdx: MDX query for chart data
+      cube: Source cube name (TM1)
+      mdx: MDX query for chart data (TM1)
+      headers: 'List of column names, e.g. ["Year", "Revenue", "Profit"]'
+      rows: 'List of row arrays, e.g. [["2023", 100, 40], ["2024", 120, 55]]'
       xAxis: Dimension for x-axis (e.g. 'month')
       series: List of series definitions [{name, element}]
     default_width: 2
     default_height: md
   BarChart:
-    description: Bar chart for comparisons (ECharts)
+    description: Bar chart for comparisons (ECharts). For TM1 data use cube+mdx.
+      For SQL/inline data pass headers+rows directly (first column = category labels,
+      remaining columns = bar values).
     props:
       title: Chart title
-      cube: Source cube name
-      mdx: MDX query for chart data
+      cube: Source cube name (TM1)
+      mdx: MDX query for chart data (TM1)
+      headers: 'List of column names, e.g. ["Year", "Dividends"]'
+      rows: 'List of row arrays, e.g. [["2021", 310], ["2022", 1125], ["2023", 1335]]'
       xAxis: Dimension for x-axis
       series: List of series definitions [{name, element}]
     default_width: 2
     default_height: md
   PieChart:
-    description: Pie/donut chart for breakdowns (ECharts)
+    description: Pie/donut chart for breakdowns (ECharts). For TM1 data use cube+mdx.
+      For SQL/inline data pass headers+rows directly (first column = slice names,
+      last column = values).
     props:
       title: Chart title
-      cube: Source cube name
-      mdx: MDX query for chart data
+      cube: Source cube name (TM1)
+      mdx: MDX query for chart data (TM1)
+      headers: 'List of column names, e.g. ["Sector", "Value"]'
+      rows: 'List of row arrays, e.g. [["Banking", 500000], ["Mining", 300000]]'
       categoryDimension: Dimension for pie slices
     default_width: 2
     default_height: md
@@ -171,3 +183,26 @@ widget_types:
     default_width: 4
     default_height: sm
     data_source_type: tm1_elements
+  TextBox:
+    description: Rich text/article widget with markdown rendering. Use for articles,
+      reports, summaries, web content, research notes, or any formatted text.
+      Supports markdown headings, bold, lists, links, code blocks, and tables.
+      Auto-detects markdown. Can include a source URL badge.
+    props:
+      content: Text or markdown content to display
+      markdown: Force markdown rendering (true/false, auto-detected if omitted)
+      sourceUrl: Optional source URL shown as a clickable badge link
+      sourceTitle: Label for the source badge (e.g. 'Bloomberg', 'Wikipedia')
+      fontSize: CSS font size
+      textColor: CSS color
+      align: '''left'', ''center'', or ''right'''
+    default_width: 3
+    default_height: lg
+  Separator:
+    description: Horizontal line separator for layout
+    props:
+      color: Line color
+      thickness: Line thickness in pixels
+      style: 'CSS border style: solid, dashed, dotted'
+    default_width: 4
+    default_height: sm

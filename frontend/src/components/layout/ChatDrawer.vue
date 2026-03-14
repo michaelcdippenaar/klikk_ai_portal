@@ -5,12 +5,14 @@ import { useChatStore } from '../../stores/chat'
 import { useWidgetContextStore } from '../../stores/widgetContext'
 import ChatPanel from '../chat/ChatPanel.vue'
 import DataQueryDialog from '../chat/DataQueryDialog.vue'
+import WebSocketCodeDialog from '../chat/WebSocketCodeDialog.vue'
 
 const appStore = useAppStore()
 const chatStore = useChatStore()
 const widgetContext = useWidgetContextStore()
 const showPlusMenu = ref(false)
 const showDataQuery = ref(false)
+const showWebSocketCode = ref(false)
 
 watch(
   () => appStore.chatDrawerOpen,
@@ -43,13 +45,18 @@ function handleAddWidget() {
   showPlusMenu.value = false
   // TODO: open adhoc widget JSON/XML/HTML input dialog
 }
+
+function handleWebSocket() {
+  showPlusMenu.value = false
+  showWebSocketCode.value = true
+}
 </script>
 
 <template>
   <transition name="slide">
     <div
       v-if="appStore.chatDrawerOpen"
-      class="flex flex-col w-[360px] h-full border-l border-[--klikk-border] bg-[--klikk-surface]"
+      class="flex flex-col w-[360px] h-full min-h-0 border-l border-[--klikk-border] bg-[--klikk-surface]"
     >
       <!-- Header -->
       <div class="flex items-center justify-between px-3 h-[49px] border-b border-[--klikk-border] flex-shrink-0">
@@ -67,7 +74,7 @@ function handleAddWidget() {
             <transition name="fade">
               <div
                 v-if="showPlusMenu"
-                class="absolute top-full left-0 mt-1 w-48 rounded-lg border border-[--klikk-border] bg-[--klikk-surface] shadow-lg z-50 py-1"
+                class="plus-dropdown"
               >
                 <button class="plus-menu-item" @click="handleAddData">
                   <i class="pi pi-database text-xs" />
@@ -84,6 +91,11 @@ function handleAddWidget() {
                 <button class="plus-menu-item" @click="handleAddWidget">
                   <i class="pi pi-code text-xs" />
                   <span>Add Widget</span>
+                </button>
+                <div class="my-0.5 border-t border-[--klikk-border]" />
+                <button class="plus-menu-item" @click="handleWebSocket">
+                  <i class="pi pi-link text-xs" />
+                  <span>WebSocket Observer</span>
                 </button>
               </div>
             </transition>
@@ -139,7 +151,7 @@ function handleAddWidget() {
       </div>
 
       <!-- Chat content -->
-      <ChatPanel class="flex-1" />
+      <ChatPanel class="flex-1 min-h-0" />
     </div>
   </transition>
 
@@ -148,6 +160,9 @@ function handleAddWidget() {
 
   <!-- Data Query Dialog -->
   <DataQueryDialog v-if="showDataQuery" @close="showDataQuery = false" />
+
+  <!-- WebSocket Code Dialog -->
+  <WebSocketCodeDialog v-if="showWebSocketCode" @close="showWebSocketCode = false" />
 </template>
 
 <style scoped>
@@ -158,6 +173,19 @@ function handleAddWidget() {
 .slide-enter-from,
 .slide-leave-to {
   transform: translateX(100%);
+}
+.plus-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 0.25rem;
+  width: 12rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--klikk-border);
+  background: var(--klikk-surface);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  z-index: 50;
+  padding: 0.25rem 0;
 }
 .plus-menu-item {
   display: flex;

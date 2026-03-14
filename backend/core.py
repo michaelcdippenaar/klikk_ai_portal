@@ -18,12 +18,13 @@ import traceback
 from dataclasses import dataclass
 from typing import Any
 
-from config import settings
+from config import settings, get_credential
 from logger import log
 from system_prompt import build_system_prompt
 from tool_registry import (
     ANTHROPIC_SCHEMAS,
     OPENAI_SCHEMAS,
+    TOOL_TO_SKILL,
     call_tool,
     route_tools_for_message,
     tool_result_to_str,
@@ -37,29 +38,52 @@ class ToolCall:
     input: dict
     result: Any
     tool_use_id: str = ""
+    skill: str = ""  # skill module this tool belongs to
 
 
 # ---------------------------------------------------------------------------
 #  Anthropic (Claude) agent loop
 # ---------------------------------------------------------------------------
 
+def _trim_history(history: list[dict], max_chars: int = 16000) -> list[dict]:
+    """Trim conversation history to fit within token budget.
+
+    Keeps all user messages intact but truncates long assistant messages.
+    If still over budget, drops oldest messages.
+    """
+    trimmed = []
+    for m in history:
+        content = m.get("content", "")
+        if m["role"] == "assistant" and len(content) > 1200:
+            content = content[:1200] + "\n... (truncated)"
+        trimmed.append({"role": m["role"], "content": content})
+
+    # If total is still too large, drop oldest messages (keep last N)
+    total = sum(len(m["content"]) for m in trimmed)
+    while total > max_chars and len(trimmed) > 2:
+        dropped = trimmed.pop(0)
+        total -= len(dropped["content"])
+
+    return trimmed
+
+
 def _run_anthropic(
     user_message: str, history: list[dict], model: str = ""
-) -> tuple[str, list[ToolCall]]:
+) -> tuple[str, list[ToolCall], list[str], dict]:
     import anthropic
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.Anthropic(api_key=get_credential("anthropic_api_key"))
     system = build_system_prompt(user_message)
 
-    messages: list[dict] = [
-        {"role": m["role"], "content": m["content"]} for m in history
-    ]
+    messages: list[dict] = _trim_history(history)
     messages.append({"role": "user", "content": user_message})
 
-    routed_anthropic, _ = route_tools_for_message(user_message)
+    routed_anthropic, _, skills_routed = route_tools_for_message(user_message)
 
     tool_calls_made: list[ToolCall] = []
     final_text = ""
+    total_input_tokens = 0
+    total_output_tokens = 0
 
     for _ in range(settings.max_tool_rounds):
         response = client.messages.create(
@@ -69,6 +93,11 @@ def _run_anthropic(
             tools=routed_anthropic,
             max_tokens=settings.max_tokens,
         )
+
+        # Accumulate token usage across rounds
+        if hasattr(response, "usage") and response.usage:
+            total_input_tokens += getattr(response.usage, "input_tokens", 0)
+            total_output_tokens += getattr(response.usage, "output_tokens", 0)
 
         if response.stop_reason == "end_turn":
             for block in response.content:
@@ -83,7 +112,8 @@ def _run_anthropic(
                 if block.type == "tool_use":
                     result = call_tool(block.name, block.input)
                     tool_calls_made.append(
-                        ToolCall(block.name, dict(block.input), result, block.id)
+                        ToolCall(block.name, dict(block.input), result, block.id,
+                                 skill=TOOL_TO_SKILL.get(block.name, ""))
                     )
                     tool_results.append({
                         "type": "tool_result",
@@ -97,7 +127,13 @@ def _run_anthropic(
                     final_text += block.text
             break
 
-    return final_text or "(No response generated)", tool_calls_made
+    usage = {
+        "input_tokens": total_input_tokens,
+        "output_tokens": total_output_tokens,
+        "model": model or settings.anthropic_model,
+        "provider": "anthropic",
+    }
+    return final_text or "(No response generated)", tool_calls_made, skills_routed, usage
 
 
 # ---------------------------------------------------------------------------
@@ -106,23 +142,25 @@ def _run_anthropic(
 
 def _run_openai(
     user_message: str, history: list[dict], model: str = ""
-) -> tuple[str, list[ToolCall]]:
+) -> tuple[str, list[ToolCall], list[str], dict]:
     import time as _time
     from openai import OpenAI
     from openai import RateLimitError as OpenAIRateLimitError
 
-    client = OpenAI(api_key=settings.openai_api_key)
+    client = OpenAI(api_key=get_credential("openai_api_key"))
     system = build_system_prompt(user_message)
 
     messages: list[dict] = [{"role": "system", "content": system}]
-    for m in history:
+    for m in _trim_history(history):
         messages.append({"role": m["role"], "content": m["content"]})
     messages.append({"role": "user", "content": user_message})
 
-    _, routed_openai = route_tools_for_message(user_message)
+    _, routed_openai, skills_routed = route_tools_for_message(user_message)
 
     tool_calls_made: list[ToolCall] = []
     final_text = ""
+    total_input_tokens = 0
+    total_output_tokens = 0
 
     for _ in range(settings.max_tool_rounds):
         last_rate_err = None
@@ -142,6 +180,12 @@ def _run_openai(
                 _time.sleep(wait)
         else:
             raise last_rate_err or RuntimeError("OpenAI rate limit exceeded after retries")
+
+        # Accumulate token usage across rounds
+        if hasattr(response, "usage") and response.usage:
+            total_input_tokens += getattr(response.usage, "prompt_tokens", 0)
+            total_output_tokens += getattr(response.usage, "completion_tokens", 0)
+
         choice = response.choices[0]
 
         if choice.finish_reason == "stop":
@@ -161,7 +205,8 @@ def _run_openai(
 
                 result = call_tool(func_name, func_args)
                 tool_calls_made.append(
-                    ToolCall(func_name, func_args, result, tc.id)
+                    ToolCall(func_name, func_args, result, tc.id,
+                             skill=TOOL_TO_SKILL.get(func_name, ""))
                 )
                 # Append tool result message
                 messages.append({
@@ -174,7 +219,13 @@ def _run_openai(
             final_text = choice.message.content or ""
             break
 
-    return final_text or "(No response generated)", tool_calls_made
+    usage = {
+        "input_tokens": total_input_tokens,
+        "output_tokens": total_output_tokens,
+        "model": model or settings.openai_model,
+        "provider": "openai",
+    }
+    return final_text or "(No response generated)", tool_calls_made, skills_routed, usage
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +300,7 @@ def _auto_extract_context(user_message: str, response_text: str, tool_calls: lis
 
         if provider == "anthropic":
             import anthropic
-            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            client = anthropic.Anthropic(api_key=get_credential("anthropic_api_key"))
             resp = client.messages.create(
                 model="claude-haiku-4-5-20251001",
                 system="You extract element context from conversations. Return ONLY a valid JSON array.",
@@ -261,7 +312,7 @@ def _auto_extract_context(user_message: str, response_text: str, tool_calls: lis
             import time as _time
             from openai import OpenAI
             from openai import RateLimitError as OpenAIRateLimitError
-            client = OpenAI(api_key=settings.openai_api_key)
+            client = OpenAI(api_key=get_credential("openai_api_key"))
             last_err = None
             for attempt in range(4):
                 try:
@@ -363,7 +414,7 @@ def _auto_extract_global_facts(user_message: str, response_text: str) -> None:
 
         if provider == "anthropic":
             import anthropic
-            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            client = anthropic.Anthropic(api_key=get_credential("anthropic_api_key"))
             resp = client.messages.create(
                 model="claude-haiku-4-5-20251001",
                 system="Extract facts from conversations. Return ONLY a valid JSON array of strings.",
@@ -374,7 +425,7 @@ def _auto_extract_global_facts(user_message: str, response_text: str) -> None:
         elif provider == "openai":
             import time as _time
             from openai import OpenAI, RateLimitError as OpenAIRateLimitError
-            client = OpenAI(api_key=settings.openai_api_key)
+            client = OpenAI(api_key=get_credential("openai_api_key"))
             for attempt in range(3):
                 try:
                     resp = client.chat.completions.create(
@@ -419,7 +470,7 @@ def run_agent(
     user_message: str,
     history: list[dict],
     model_override: str | None = None,
-) -> tuple[str, list[ToolCall]]:
+) -> tuple[str, list[ToolCall], list[str]]:
     """
     Run one conversational turn of the agent.
 
@@ -432,7 +483,7 @@ def run_agent(
         model_override: Optional model string to override the default (e.g. "gpt-4o", "claude-sonnet-4-6").
 
     Returns:
-        (response_text, tool_calls_made)
+        (response_text, tool_calls_made, skills_routed, usage)
     """
     provider = settings.ai_provider.lower()
     model = settings.openai_model if provider == "openai" else settings.anthropic_model
@@ -452,26 +503,34 @@ def run_agent(
 
     t0 = time.monotonic()
     if provider == "anthropic":
-        response_text, tool_calls = _run_anthropic(user_message, history)
+        response_text, tool_calls, skills_routed, usage = _run_anthropic(user_message, history)
     elif provider == "openai":
-        response_text, tool_calls = _run_openai(user_message, history)
+        response_text, tool_calls, skills_routed, usage = _run_openai(user_message, history)
     else:
         log.error("Unknown AI provider: %s", provider, extra={"provider": provider})
         return (
             f"Unknown AI_PROVIDER='{provider}' in .env. Set to 'anthropic' or 'openai'.",
             [],
+            [],
+            {},
         )
 
+    # Collect unique skills actually used (from tool calls)
+    skills_used = sorted(set(tc.skill for tc in tool_calls if tc.skill))
+
     duration = int((time.monotonic() - t0) * 1000)
+    usage["duration_ms"] = duration
     log.info(
-        "Agent turn complete (%dms, %d tool calls)", duration, len(tool_calls),
-        extra={"provider": provider, "model": model, "duration_ms": duration},
+        "Agent turn complete (%dms, %d tool calls, in=%d out=%d tokens, skills routed: [%s], skills used: [%s])",
+        duration, len(tool_calls), usage.get("input_tokens", 0), usage.get("output_tokens", 0),
+        ", ".join(skills_routed), ", ".join(skills_used),
+        extra={"provider": provider, "model": model, "duration_ms": duration,
+               "skills_routed": skills_routed, "skills_used": skills_used,
+               "input_tokens": usage.get("input_tokens", 0),
+               "output_tokens": usage.get("output_tokens", 0)},
     )
 
-    # Post-processing (context extraction) is now done in chat.py as fire-and-forget
-    # after the response is sent to the user — see run_post_processing() below.
-
-    return response_text, tool_calls
+    return response_text, tool_calls, skills_routed, usage
 
 
 def run_post_processing(user_message: str, response_text: str, tool_calls: list) -> None:

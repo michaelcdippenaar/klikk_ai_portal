@@ -46,6 +46,12 @@ import pg_tools as _pg
 import report_builder as _rb
 import sql_builder as _sql
 
+try:
+    from progress_context import emit_progress as _emit
+except Exception:
+    def _emit(msg: str, detail: str = "") -> None:  # type: ignore[misc]
+        pass
+
 # Re-export the persistent TM1 connection helper for enhanced tools
 _get_tm1 = _tm1._get_tm1
 
@@ -53,12 +59,21 @@ _get_tm1 = _tm1._get_tm1
 #  PG tools — identical in MCP and backend, import directly
 # ---------------------------------------------------------------------------
 
-pg_query_financials = _pg.pg_query_financials
+def pg_query_financials(sql: str, limit: int = 200) -> dict[str, Any]:
+    _emit("Querying PostgreSQL...")
+    return _pg.pg_query_financials(sql=sql, limit=limit)
+
+def pg_get_share_data(symbol_search: str = "", include: str = "all") -> dict[str, Any]:
+    _emit(f"Looking up share data for '{symbol_search}'...")
+    return _pg.pg_get_share_data(symbol_search=symbol_search, include=include)
+
+def pg_get_share_summary(limit: int = 100) -> dict[str, Any]:
+    _emit("Loading portfolio summary...")
+    return _pg.pg_get_share_summary(limit=limit)
+
 pg_list_tables = _pg.pg_list_tables
 pg_describe_table = _pg.pg_describe_table
 pg_get_xero_gl_sample = _pg.pg_get_xero_gl_sample
-pg_get_share_data = _pg.pg_get_share_data
-pg_get_share_summary = _pg.pg_get_share_summary
 
 # ---------------------------------------------------------------------------
 #  TM1 Metadata — direct imports where signatures match
@@ -84,6 +99,7 @@ def tm1_get_dimension_elements(
     limit: int = 200,
 ) -> dict[str, Any]:
     """Adapter: backend uses 'limit', MCP doesn't have it. Apply limit post-call."""
+    _emit(f"Reading elements from {dimension_name}...")
     result = _tm1.tm1_get_dimension_elements(
         dimension_name=dimension_name,
         hierarchy_name=hierarchy_name,
@@ -130,8 +146,9 @@ def tm1_query_mdx(mdx: str, top: int = 1000) -> dict[str, Any]:
     return _tm1.tm1_query_mdx(mdx=mdx, top_records=top)
 
 
-def tm1_execute_mdx_rows(mdx: str, top: int = 500) -> dict[str, Any]:
-    """Adapter: apply top limit to MCP result."""
+def tm1_execute_mdx_rows(mdx: str, top: int = 200) -> dict[str, Any]:
+    """Adapter: apply top limit to MCP result. Default 200 to reduce tokens and latency."""
+    _emit("Querying TM1 (MDX)...")
     result = _tm1.tm1_execute_mdx_rows(mdx=mdx)
     if "error" not in result and "rows" in result:
         result["rows"] = result["rows"][:top]
@@ -180,6 +197,9 @@ def tm1_write_cell(
     confirm: bool = False,
 ) -> dict[str, Any]:
     """Adapter: backend uses 'coordinates', MCP uses 'elements'. Default confirm=False."""
+    if confirm:
+        share = coordinates[4] if len(coordinates) > 4 else cube_name
+        _emit(f"Writing {value} to {share} in {cube_name}...")
     if not confirm:
         return {
             "status": "dry_run",
@@ -291,8 +311,9 @@ def tm1_find_element(
     Enhanced element search — searches names, attributes, and RAG context.
     Richer than MCP's tm1_find_element: includes attribute search on key dimensions,
     RAG context notes, and PostgreSQL fallback suggestions.
-    Uses MCP's persistent TM1 connection.
     """
+    scope = f"in {', '.join(dimension_names)}" if dimension_names else "across all dimensions"
+    _emit(f"Searching for '{search}' {scope}...")
     try:
         tm1 = _get_tm1()
         if dimension_names:
@@ -742,24 +763,24 @@ TM1_METADATA_SCHEMAS = [
 TM1_QUERY_SCHEMAS = [
     {
         "name": "tm1_query_mdx",
-        "description": "PRIMARY MDX tool — execute an MDX SELECT and return cell data as coordinate/value pairs. Use this for all data queries. For tabular display prefer tm1_execute_mdx_rows instead.",
+        "description": "Execute MDX SELECT and return cell data. Use top=100–200 for speed. For tables use tm1_execute_mdx_rows.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "mdx": {"type": "string", "description": "Full MDX SELECT statement"},
-                "top": {"type": "integer", "description": "Max rows to return (default 1000)"},
+                "top": {"type": "integer", "description": "Max rows (default 200)"},
             },
             "required": ["mdx"],
         },
     },
     {
         "name": "tm1_execute_mdx_rows",
-        "description": "Execute an MDX query and return results as a table with column headers and rows. Better for displaying data than tm1_query_mdx.",
+        "description": "Execute an MDX query and return results as a table. Use top=100–200 for speed; add TOPCOUNT in MDX to limit rows.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "mdx": {"type": "string", "description": "Full MDX SELECT statement"},
-                "top": {"type": "integer", "description": "Max rows (default 500)"},
+                "top": {"type": "integer", "description": "Max rows to return (default 200; use 100–200 for faster replies)"},
             },
             "required": ["mdx"],
         },
@@ -892,11 +913,24 @@ TM1_MANAGEMENT_SCHEMAS = [
 PG_SCHEMAS = [
     {
         "name": "pg_query_financials",
-        "description": "Run a read-only SELECT against klikk_financials_v4 (Xero GL, financial investments/share prices, Investec portfolio). SELECT only.",
+        "description": (
+            "Run a read-only SELECT against klikk_financials_v4. SELECT only.\n"
+            "IMPORTANT — use EXACT table names (Django snake_case). Common tables:\n"
+            "  Xero GL:       xero_cube_xerotrailbalance (year, month, account_code, account_name, contact_name, tracking_option_1, tracking_option_2, amount, balance_to_date)\n"
+            "  Symbols:       financial_investments_symbol (id, symbol, name, exchange, category)\n"
+            "  Prices:        financial_investments_pricepoint (symbol_id, date, open, high, low, close, volume)\n"
+            "  Dividends:     financial_investments_dividend (symbol_id, date, amount, currency)\n"
+            "  Company info:  financial_investments_symbolinfo (symbol_id, data [JSONB], fetched_at)\n"
+            "  Holdings:      investec_investecjseportfolio (date, share_code, company, quantity, total_value, profit_loss)\n"
+            "  Transactions:  investec_investecjsetransaction (date, share_name, type, quantity, value)\n"
+            "  Share mapping: investec_investecjsesharenamemapping (id, share_name, share_code, company)\n"
+            "  Performance:   investec_investecjsesharemonthlyperformance (date, share_name, closing_price, dividend_yield)\n"
+            "Do NOT guess table names — use pg_list_tables if unsure. Always use LIMIT."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "sql": {"type": "string", "description": "SELECT statement (use LIMIT to avoid large results)"},
+                "sql": {"type": "string", "description": "SELECT statement. Use EXACT table names from the description above. Always include LIMIT."},
                 "limit": {"type": "integer", "description": "Max rows to return (default 100, max 1000)"},
             },
             "required": ["sql"],
