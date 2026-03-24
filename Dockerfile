@@ -38,6 +38,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend code
 COPY backend/ ./
 
+# Agent skill modules (overlay commit 77665bcc; avoids empty host bind mount on ./mcp_server/skills).
+COPY mcp_overlay/backend/mcp_server/ ./mcp_server/
+
 # Copy MCP server (canonical TM1 + PG tool implementations)
 COPY mcp_tm1_server/ ./mcp_tm1_server/
 

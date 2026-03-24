@@ -175,11 +175,14 @@ def _store_turn_in_pgvector(
         log.warning("pgvector context store failed (%dms)", dur, exc_info=True)
 
 
-def _broadcast_to_observer(session_id: str, role: str, content: str, **extra) -> None:
-    """Fire-and-forget POST to Django WebSocket broadcast endpoint."""
+def _broadcast_to_observer(session_id: str, role: str, content: str, *, username: str = "", **extra) -> None:
+    """Fire-and-forget POST to Django WebSocket broadcast endpoint.
+    Also persists the message to Django AgentSession/AgentMessage via the broadcast view."""
     try:
         import httpx
         payload = {"session_id": session_id, "role": role, "content": content, "type": "message", **extra}
+        if username:
+            payload["username"] = username
         httpx.post("http://192.168.1.235:8001/api/ai-agent/ws/broadcast/", json=payload, timeout=2)
     except Exception:
         log.debug("Failed to broadcast to Django observer", exc_info=True)
@@ -295,7 +298,8 @@ async def websocket_chat(ws: WebSocket, token: str = Query(default=None)):
             history.append({"role": "user", "content": content})
 
             # Broadcast user message to Django observer
-            _broadcast_to_observer(session_id, "user", content)
+            _username = getattr(ws.state, 'user', {}).get('username', '')
+            _broadcast_to_observer(session_id, "user", content, username=_username)
 
             # Notify client we're thinking
             if not await _safe_send(ws, {"type": "thinking"}):
@@ -382,6 +386,7 @@ async def websocket_chat(ws: WebSocket, token: str = Query(default=None)):
                 # Broadcast assistant response to Django observer
                 _broadcast_to_observer(
                     session_id, "assistant", response_text,
+                    username=_username,
                     tool_calls=[tc.get("name", "?") for tc in serialized_calls],
                     skills_routed=skills_routed,
                 )

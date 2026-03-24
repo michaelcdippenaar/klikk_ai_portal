@@ -16,8 +16,7 @@ services:
       - ./backend/credentials:/app/credentials:ro
       # Logs — persisted outside container, readable by klikk_ai_setup
       - ./logs:/app/logs
-      # Skills — live-editable from host, readable/writable by klikk_ai_setup
-      - ./backend/mcp_server/skills:/app/mcp_server/skills
+      # Skills live on the image (mcp_overlay in Dockerfile). Do not mount an empty host dir.
       # MCP server — canonical TM1 + PG tool implementations (used by mcp_bridge)
       - ./mcp_tm1_server:/app/mcp_tm1_server
       # System prompt and tool registry — editable without rebuild
@@ -27,5 +26,4 @@ services:
       - PYTHONUNBUFFERED=1
     # Access at http://192.168.1.235:8000
     # Logs at:   ./logs/chat_sessions/
-    # Skills at: ./backend/mcp_server/skills/
-    # klikk_ai_setup reads from these host paths directly
+    # Agent skills: baked into image via ./mcp_overlay (see Dockerfile).

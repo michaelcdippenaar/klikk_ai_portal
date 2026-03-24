@@ -216,11 +216,11 @@ export const useChatStore = defineStore('chat', () => {
           role: 'assistant',
           content: data.content || '',
           tool_calls: data.tool_calls || [],
-          widgets: [],
+          widgets: data.widgets || [],
           timestamp: Date.now(),
-          has_errors: false,
-          skills_routed: [],
-          skills_used: [],
+          has_errors: data.has_errors || false,
+          skills_routed: data.skills_routed || [],
+          skills_used: data.skills_used || [],
         })
         currentToolCalls.value = []
         break
